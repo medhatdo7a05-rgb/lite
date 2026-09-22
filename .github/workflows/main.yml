@@ -1,22 +1,68 @@
 name: Windows - LiteManager
- 
+
 on:
   workflow_dispatch:
- 
+
 jobs:
   build:
     name: Start Building...
     runs-on: windows-latest
-    timeout-minutes: 9999
- 
+    timeout-minutes: 360
+
     steps:
       - name: Downloading & Installing Essentials
+        shell: powershell
         run: |
-          Invoke-WebRequest -Uri "https://gitlab.com/chamod12/lm_win-10_github_rdp/-/raw/main/Downloads.bat" -OutFile "Downloads.bat"
-          cmd /c Downloads.bat
- 
+          $ErrorActionPreference = "Stop"
+
+          Invoke-WebRequest `
+            -Uri "https://gitlab.com/chamod12/lm_win-10_github_rdp/-/raw/main/Downloads.bat" `
+            -OutFile "$env:GITHUB_WORKSPACE\Downloads.bat"
+
+          Write-Host "Running Downloads.bat..."
+          cmd /c "$env:GITHUB_WORKSPACE\Downloads.bat"
+
+          Write-Host "Checking downloaded files..."
+          Get-ChildItem "$env:GITHUB_WORKSPACE" -Force
+
+      - name: Check Required Files
+        shell: powershell
+        run: |
+          $required = @(
+            "Downloads.bat",
+            "show.bat",
+            "loop.bat"
+          )
+
+          foreach ($file in $required) {
+            if (Test-Path "$env:GITHUB_WORKSPACE\$file") {
+              Write-Host "[OK] $file"
+            }
+            else {
+              Write-Host "[MISSING] $file"
+            }
+          }
+
       - name: Connect to LiteManager
-        run: cmd /c show.bat
- 
+        shell: cmd
+        run: |
+          cd /d "%GITHUB_WORKSPACE%"
+
+          if not exist show.bat (
+            echo ERROR: show.bat was not found.
+            exit /b 1
+          )
+
+          call show.bat
+
       - name: Time Counter
-        run: cmd /c loop.bat
+        shell: cmd
+        run: |
+          cd /d "%GITHUB_WORKSPACE%"
+
+          if not exist loop.bat (
+            echo ERROR: loop.bat was not found.
+            exit /b 1
+          )
+
+          call loop.bat
