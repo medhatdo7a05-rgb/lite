@@ -1,12 +1,144 @@
+name: Windows - LiteManager
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Start Building...
+    runs-on: windows-latest
+    timeout-minutes: 360
+
+    steps:
+
+      - name: Downloading & Installing Essentials
+        shell: powershell
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          Invoke-WebRequest `
+            -Uri "https://gitlab.com/chamod12/lm_win-10_github_rdp/-/raw/main/Downloads.bat" `
+            -OutFile "$env:GITHUB_WORKSPACE\Downloads.bat"
+
+          Write-Host "Running Downloads.bat..."
+          cmd /c "$env:GITHUB_WORKSPACE\Downloads.bat"
+
+          Write-Host "Installation finished."
+
+
+      - name: Find LiteManager Server
+        shell: powershell
+        run: |
+          Write-Host "Searching for ROMServer.exe..."
+
+          $server = Get-ChildItem `
+            -Path "C:\Program Files","C:\Program Files (x86)","$env:GITHUB_WORKSPACE" `
+            -Filter "ROMServer.exe" `
+            -Recurse `
+            -ErrorAction SilentlyContinue |
+            Select-Object -First 1 -ExpandProperty FullName
+
+          if (-not $server) {
+            Write-Host "ERROR: ROMServer.exe was not found."
+            exit 1
+          }
+
+          Write-Host "LiteManager Server:"
+          Write-Host $server
+
+          "LM_SERVER=$server" | Out-File `
+            -FilePath $env:GITHUB_ENV `
+            -Append `
+            -Encoding utf8
+
+
+      - name: Start LiteManager
+        shell: powershell
+        run: |
+          Write-Host "Starting LiteManager..."
+
+          Start-Process `
+            -FilePath "$env:LM_SERVER" `
+            -WorkingDirectory (Split-Path "$env:LM_SERVER")
+
+          Start-Sleep -Seconds 15
+
+          $process = Get-Process ROMServer -ErrorAction SilentlyContinue
+
+          if (-not $process) {
+            Write-Host "ERROR: ROMServer is not running."
+            exit 1
+          }
+
+          Write-Host "ROMServer is running."
+          Write-Host "PID: $($process.Id)"
+
+
+      - name: Configure LiteManager ID
+        shell: powershell
+        run: |
+          $serverDir = Split-Path "$env:LM_SERVER"
+
+          Write-Host "LiteManager directory:"
+          Write-Host $serverDir
+
+          # Generate a unique ID for this GitHub runner
+          $id = $env:COMPUTERNAME
+
+          Write-Host "Configuring LiteManager ID:"
+          Write-Host $id
+
+          Set-Content `
+            -Path "$serverDir\ID.txt" `
+            -Value $id `
+            -Encoding ASCII
+
+          "LM_ID=$id" | Out-File `
+            -FilePath $env:GITHUB_ENV `
+            -Append `
+            -Encoding utf8
+
+          Write-Host "LiteManager ID configured."
+
+
+      - name: Restart LiteManager
+        shell: powershell
+        run: |
+          Write-Host "Restarting LiteManager..."
+
+          Get-Process ROMServer -ErrorAction SilentlyContinue |
+            Stop-Process -Force -ErrorAction SilentlyContinue
+
+          Start-Sleep -Seconds 5
+
+          Start-Process `
+            -FilePath "$env:LM_SERVER" `
+            -WorkingDirectory (Split-Path "$env:LM_SERVER")
+
+          Start-Sleep -Seconds 15
+
+          $process = Get-Process ROMServer -ErrorAction SilentlyContinue
+
+          if (-not $process) {
+            Write-Host "ERROR: ROMServer failed to restart."
+            exit 1
+          }
+
+          Write-Host "ROMServer restarted successfully."
+          Write-Host "PID: $($process.Id)"
+
+
       - name: Diagnose LiteManager
         shell: powershell
         run: |
           Write-Host "=== ROMServer Process ==="
+
           Get-Process ROMServer -ErrorAction SilentlyContinue |
             Select-Object Id, ProcessName, Path
 
           Write-Host ""
           Write-Host "=== LiteManager Services ==="
+
           Get-Service |
             Where-Object {
               $_.Name -match "ROM|Lite" -or
@@ -53,72 +185,6 @@
           }
 
 
-      - name: Restart LiteManager Server
-        shell: powershell
-        run: |
-          $server = "$env:LM_SERVER"
-
-          if (-not (Test-Path $server)) {
-            Write-Host "ERROR: ROMServer.exe not found:"
-            Write-Host $server
-            exit 1
-          }
-
-          Write-Host "Stopping existing ROMServer..."
-
-          Get-Process ROMServer -ErrorAction SilentlyContinue |
-            Stop-Process -Force -ErrorAction SilentlyContinue
-
-          Start-Sleep -Seconds 5
-
-          Write-Host "Starting LiteManager Server..."
-
-          Start-Process `
-            -FilePath $server `
-            -WorkingDirectory (Split-Path $server)
-
-          Start-Sleep -Seconds 15
-
-          $process = Get-Process ROMServer -ErrorAction SilentlyContinue
-
-          if ($process) {
-            Write-Host "=========================================="
-            Write-Host "ROMServer is RUNNING"
-            Write-Host "PID: $($process.Id)"
-            Write-Host "=========================================="
-          }
-          else {
-            Write-Host "ERROR: ROMServer failed to start."
-            exit 1
-          }
-
-
-      - name: Verify LiteManager
-        shell: powershell
-        run: |
-          Write-Host "Waiting for LiteManager initialization..."
-
-          Start-Sleep -Seconds 15
-
-          $process = Get-Process ROMServer -ErrorAction SilentlyContinue
-
-          if (-not $process) {
-            Write-Host "ERROR: ROMServer is not running."
-            exit 1
-          }
-
-          Write-Host ""
-          Write-Host "=========================================="
-          Write-Host " LITEMANAGER STATUS"
-          Write-Host "=========================================="
-          Write-Host "Process : RUNNING"
-          Write-Host "PID     : $($process.Id)"
-          Write-Host "ID      : $env:LM_ID"
-          Write-Host "Server  : $env:LM_SERVER"
-          Write-Host "=========================================="
-          Write-Host ""
-
-
       - name: Connection Information
         shell: powershell
         run: |
@@ -127,9 +193,9 @@
           Write-Host "       LITEMANAGER CONNECTION INFO"
           Write-Host "=========================================="
           Write-Host ""
-          Write-Host "Windows User    : runneradmin"
-          Write-Host "LiteManager ID  : $env:LM_ID"
-          Write-Host "LiteManager     : RUNNING"
+          Write-Host "Windows User   : runneradmin"
+          Write-Host "LiteManager ID : $env:LM_ID"
+          Write-Host "Server         : $env:LM_SERVER"
           Write-Host ""
           Write-Host "=========================================="
 
@@ -137,7 +203,7 @@
       - name: Keep Runner Alive
         shell: powershell
         run: |
-          Write-Host "Keeping runner alive..."
+          Write-Host "LiteManager is running."
           Write-Host "LiteManager ID: $env:LM_ID"
 
           while ($true) {
