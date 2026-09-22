@@ -1,0 +1,26 @@
+      - name: Diagnose LiteManager
+        shell: powershell
+        run: |
+          Write-Host "=== ROMServer Process ==="
+          Get-Process ROMServer -ErrorAction SilentlyContinue |
+            Select-Object Id, ProcessName, Path
+
+          Write-Host ""
+          Write-Host "=== LiteManager Services ==="
+          Get-Service |
+            Where-Object {
+              $_.Name -match "ROM|Lite" -or $_.DisplayName -match "LiteManager"
+            } |
+            Select-Object Status, Name, DisplayName
+
+          Write-Host ""
+          Write-Host "=== Network Connections ==="
+          Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue |
+            Where-Object {
+              $_.OwningProcess -in (Get-Process ROMServer -ErrorAction SilentlyContinue).Id
+            } |
+            Select-Object LocalAddress,LocalPort,State,OwningProcess
+
+          Write-Host ""
+          Write-Host "=== Internet Test ==="
+          Test-NetConnection 8.8.8.8 -Port 53
