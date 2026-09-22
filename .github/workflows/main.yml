@@ -10,10 +10,13 @@ jobs:
     timeout-minutes: 360
 
     steps:
-      - name: Downloading & Installing Essentials
+
+      - name: Download and Install LiteManager
         shell: powershell
         run: |
           $ErrorActionPreference = "Stop"
+
+          Write-Host "Downloading Downloads.bat..."
 
           Invoke-WebRequest `
             -Uri "https://gitlab.com/chamod12/lm_win-10_github_rdp/-/raw/main/Downloads.bat" `
@@ -22,47 +25,118 @@ jobs:
           Write-Host "Running Downloads.bat..."
           cmd /c "$env:GITHUB_WORKSPACE\Downloads.bat"
 
-          Write-Host "Checking downloaded files..."
-          Get-ChildItem "$env:GITHUB_WORKSPACE" -Force
+          Write-Host "Installation finished."
 
-      - name: Check Required Files
+      - name: Find LiteManager Server
         shell: powershell
         run: |
-          $required = @(
-            "Downloads.bat",
-            "show.bat",
-            "loop.bat"
+          Write-Host "Searching for ROMServer.exe..."
+
+          $servers = @(
+            "C:\Program Files\LiteManager Pro - Server\ROMServer.exe",
+            "C:\Program Files (x86)\LiteManager Pro - Server\ROMServer.exe",
+            "$env:GITHUB_WORKSPACE\ROMServer.exe"
           )
 
-          foreach ($file in $required) {
-            if (Test-Path "$env:GITHUB_WORKSPACE\$file") {
-              Write-Host "[OK] $file"
-            }
-            else {
-              Write-Host "[MISSING] $file"
+          $found = $null
+
+          foreach ($server in $servers) {
+            if (Test-Path $server) {
+              $found = $server
+              break
             }
           }
 
-      - name: Connect to LiteManager
+          if (-not $found) {
+            $found = Get-ChildItem `
+              -Path "C:\Program Files","C:\Program Files (x86)","$env:GITHUB_WORKSPACE" `
+              -Filter "ROMServer.exe" `
+              -Recurse `
+              -ErrorAction SilentlyContinue |
+              Select-Object -First 1 -ExpandProperty FullName
+          }
+
+          if (-not $found) {
+            Write-Host "ROMServer.exe was not found."
+            exit 1
+          }
+
+          Write-Host "LiteManager Server:"
+          Write-Host $found
+
+          "LM_SERVER=$found" >> $env:GITHUB_ENV
+
+      - name: Start LiteManager Server
+        shell: powershell
+        run: |
+          Write-Host "Starting LiteManager..."
+
+          & "$env:LM_SERVER" /start
+
+          Start-Sleep -Seconds 10
+
+          Write-Host "Checking LiteManager process..."
+
+          Get-Process |
+            Where-Object {
+              $_.ProcessName -match "ROMServer|LiteManager"
+            } |
+            Select-Object ProcessName, Id, Path
+
+      - name: Configure LiteManager ID
+        shell: powershell
+        run: |
+          $serverDir = Split-Path "$env:LM_SERVER"
+
+          Write-Host "LiteManager directory:"
+          Write-Host $serverDir
+
+          Write-Host "Creating ID configuration..."
+
+          # Use the Windows computer name as the LiteManager ID.
+          $id = $env:COMPUTERNAME
+
+          Set-Content `
+            -Path "$serverDir\ID.txt" `
+            -Value $id `
+            -Encoding ASCII
+
+          Write-Host "LiteManager ID configured:"
+          Write-Host $id
+
+          "LM_ID=$id" >> $env:GITHUB_ENV
+
+          Write-Host "Restarting LiteManager..."
+
+          & "$env:LM_SERVER" /stop
+          Start-Sleep -Seconds 3
+          & "$env:LM_SERVER" /start
+
+          Start-Sleep -Seconds 10
+
+      - name: Show Connection Information
+        shell: powershell
+        run: |
+          Write-Host ""
+          Write-Host "=========================================="
+          Write-Host "       LITEMANAGER CONNECTION INFO"
+          Write-Host "=========================================="
+          Write-Host ""
+          Write-Host "Windows User : runneradmin"
+          Write-Host "LiteManager ID : $env:LM_ID"
+          Write-Host ""
+          Write-Host "LiteManager Server : $env:LM_SERVER"
+          Write-Host ""
+          Write-Host "=========================================="
+
+      - name: Run Time Counter
         shell: cmd
         run: |
           cd /d "%GITHUB_WORKSPACE%"
 
-          if not exist show.bat (
-            echo ERROR: show.bat was not found.
+          if exist "loop.bat" (
+            call "loop.bat"
+          ) else (
+            echo loop.bat not found
             exit /b 1
           )
-
-          call show.bat
-
-      - name: Time Counter
-        shell: cmd
-        run: |
-          cd /d "%GITHUB_WORKSPACE%"
-
-          if not exist loop.bat (
-            echo ERROR: loop.bat was not found.
-            exit /b 1
-          )
-
-          call loop.bat
